@@ -264,7 +264,29 @@ local function getAmuletInfo(amuletFrame)
     
     if not success then
         debugPrint("❌ Error in getAmuletInfo:", result)
-        return nil
+        -- Return a safe default structure instead of nil
+        return {
+            name = amuletFrame and amuletFrame.Name or "Unknown",
+            stats = {},
+            isSpecial = false,
+            specialType = "None"
+        }
+    end
+    
+    -- Validate the result structure before returning
+    if not result or type(result) ~= "table" then
+        debugPrint("⚠️ Invalid result structure from getAmuletInfo")
+        return {
+            name = amuletFrame and amuletFrame.Name or "Unknown",
+            stats = {},
+            isSpecial = false,
+            specialType = "None"
+        }
+    end
+    
+    -- Ensure stats table exists
+    if not result.stats or type(result.stats) ~= "table" then
+        result.stats = {}
     end
     
     return result
@@ -298,30 +320,46 @@ local function analyzeAmulets()
         -- Get old amulets (left side)
         debugPrint("📦 Analyzing left amulets...")
         local oldAmulets = {}
-        for _, child in pairs(leftAmulets:GetChildren()) do
-            if child:IsA("Frame") and child.Name ~= "UIListLayout" then
-                debugPrint("🔍 Processing left amulet:", child.Name)
-                local amuletInfo = getAmuletInfo(child)
-                if amuletInfo then
-                    table.insert(oldAmulets, amuletInfo)
-                    debugPrint("✅ Left amulet processed:", amuletInfo.name)
+        local leftSuccess, leftError = pcall(function()
+            for _, child in pairs(leftAmulets:GetChildren()) do
+                if child:IsA("Frame") and child.Name ~= "UIListLayout" then
+                    debugPrint("🔍 Processing left amulet:", child.Name)
+                    local amuletSuccess, amuletInfo = pcall(getAmuletInfo, child)
+                    if amuletSuccess and amuletInfo then
+                        table.insert(oldAmulets, amuletInfo)
+                        debugPrint("✅ Left amulet processed:", amuletInfo.name)
+                    else
+                        debugPrint("⚠️ Failed to process left amulet:", child.Name, amuletInfo or "unknown error")
+                    end
                 end
             end
+        end)
+        
+        if not leftSuccess then
+            debugPrint("❌ Error processing left amulets:", leftError)
         end
         debugPrint("📦 Found", #oldAmulets, "left amulets")
         
         -- Get new amulets (right side)
         debugPrint("✨ Analyzing right amulets...")
         local newAmulets = {}
-        for _, child in pairs(rightAmulets:GetChildren()) do
-            if child:IsA("Frame") and child.Name ~= "UIListLayout" then
-                debugPrint("🔍 Processing right amulet:", child.Name)
-                local amuletInfo = getAmuletInfo(child)
-                if amuletInfo then
-                    table.insert(newAmulets, amuletInfo)
-                    debugPrint("✅ Right amulet processed:", amuletInfo.name)
+        local rightSuccess, rightError = pcall(function()
+            for _, child in pairs(rightAmulets:GetChildren()) do
+                if child:IsA("Frame") and child.Name ~= "UIListLayout" then
+                    debugPrint("🔍 Processing right amulet:", child.Name)
+                    local amuletSuccess, amuletInfo = pcall(getAmuletInfo, child)
+                    if amuletSuccess and amuletInfo then
+                        table.insert(newAmulets, amuletInfo)
+                        debugPrint("✅ Right amulet processed:", amuletInfo.name)
+                    else
+                        debugPrint("⚠️ Failed to process right amulet:", child.Name, amuletInfo or "unknown error")
+                    end
                 end
             end
+        end)
+        
+        if not rightSuccess then
+            debugPrint("❌ Error processing right amulets:", rightError)
         end
         debugPrint("✨ Found", #newAmulets, "right amulets")
     
@@ -421,12 +459,36 @@ local function compareAmuletSets(oldAmulets, newAmulets)
         local priorityStatTotal = 0
         local specialCount = 0
         
+        -- Add error handling for amulets parameter
+        if not amulets or type(amulets) ~= "table" then
+            debugPrint("⚠️ Invalid amulets parameter in getAmuletSetScore")
+            return 0, 0, 0
+        end
+        
         for _, amulet in ipairs(amulets) do
+            -- Add nil check for amulet
+            if not amulet then
+                debugPrint("⚠️ Nil amulet found in amulets list")
+                goto continue
+            end
+            
             if amulet.isSpecial then
                 specialCount = specialCount + 1
             end
             
+            -- Add nil check for amulet.stats
+            if not amulet.stats or type(amulet.stats) ~= "table" then
+                debugPrint("⚠️ Invalid or missing stats for amulet:", amulet.name or "unknown")
+                goto continue
+            end
+            
             for statName, statData in pairs(amulet.stats) do
+                -- Add nil check for statData
+                if not statData or type(statData) ~= "table" then
+                    debugPrint("⚠️ Invalid statData for stat:", statName)
+                    goto continue_stat
+                end
+                
                 local baseScore = statData.value or 0
                 
                 -- Apply tier multipliers
@@ -444,14 +506,33 @@ local function compareAmuletSets(oldAmulets, newAmulets)
                 if statName == amuletConfig.priorityStat then
                     priorityStatTotal = priorityStatTotal + baseScore
                 end
+                
+                ::continue_stat::
             end
+            
+            ::continue::
         end
         
         return totalScore, priorityStatTotal, specialCount
     end
     
-    local oldTotalScore, oldPriorityStat, oldSpecialCount = getAmuletSetScore(oldAmulets)
-    local newTotalScore, newPriorityStat, newSpecialCount = getAmuletSetScore(newAmulets)
+    -- Add error handling for score calculation
+    local oldTotalScore, oldPriorityStat, oldSpecialCount = 0, 0, 0
+    local newTotalScore, newPriorityStat, newSpecialCount = 0, 0, 0
+    
+    local success1, oldScore1, oldScore2, oldScore3 = pcall(getAmuletSetScore, oldAmulets)
+    if success1 then
+        oldTotalScore, oldPriorityStat, oldSpecialCount = oldScore1, oldScore2, oldScore3
+    else
+        debugPrint("❌ Error calculating old amulet scores:", oldScore1)
+    end
+    
+    local success2, newScore1, newScore2, newScore3 = pcall(getAmuletSetScore, newAmulets)
+    if success2 then
+        newTotalScore, newPriorityStat, newSpecialCount = newScore1, newScore2, newScore3
+    else
+        debugPrint("❌ Error calculating new amulet scores:", newScore1)
+    end
     
     -- Determine if we should take new amulets based on configuration
     local shouldTakeNew = false
