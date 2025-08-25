@@ -94,6 +94,11 @@ local BlessingTab = Window:AddTab({
     Icon = "rbxassetid://7733955511"
 })
 
+local BotTab = Window:AddTab({
+    Title = "Bot",
+    Icon = "rbxassetid://7733964370"
+})
+
 -- ========== COLLECTOR TAB ========== --
 -- Information Section
 MainTab:AddSection("Information")
@@ -918,6 +923,22 @@ local blessingState = {
     maxCrashRecoveryAttempts = 3
 }
 
+-- Bot Settings
+local botSettings = {
+    positionLocked = false,
+    noclipEnabled = false,
+    lockPosition = Vector3.new(0, 0, 0),
+    maxDistance = 50,
+    teleportFallback = true
+}
+
+-- Bot State
+local botState = {
+    originalPosition = nil,
+    noclipConnection = nil,
+    positionCheckConnection = nil
+}
+
 -- Available blessing types
 local blessingTypes = {
     "Fortune", "GemChance", "CorruptedSlimeValue", 
@@ -1574,6 +1595,207 @@ spawn(function()
     end
 end)
 
+-- ========== BOT TAB ========== --
+-- Services for Bot functionality
+local RunService = game:GetService("RunService")
+
+-- Bot Functions
+local function enableNoclip()
+    if not player.Character or not player.Character:FindFirstChild("Humanoid") then return end
+    
+    local character = player.Character
+    local humanoid = character:FindFirstChild("Humanoid")
+    
+    if botState.noclipConnection then
+        botState.noclipConnection:Disconnect()
+    end
+    
+    botState.noclipConnection = RunService.Stepped:Connect(function()
+        if botSettings.noclipEnabled and character then
+            for _, part in pairs(character:GetChildren()) do
+                if part:IsA("BasePart") and part.CanCollide then
+                    part.CanCollide = false
+                end
+            end
+        end
+    end)
+    
+    debugPrint("🚫 Noclip enabled")
+end
+
+local function disableNoclip()
+    if botState.noclipConnection then
+        botState.noclipConnection:Disconnect()
+        botState.noclipConnection = nil
+    end
+    
+    if player.Character then
+        for _, part in pairs(player.Character:GetChildren()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = true
+            end
+        end
+    end
+    
+    debugPrint("✅ Noclip disabled")
+end
+
+local function lockPosition()
+    if not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then return end
+    
+    local rootPart = player.Character.HumanoidRootPart
+    botState.originalPosition = rootPart.Position
+    botSettings.lockPosition = rootPart.Position
+    
+    if botState.positionCheckConnection then
+        botState.positionCheckConnection:Disconnect()
+    end
+    
+    botState.positionCheckConnection = RunService.Heartbeat:Connect(function()
+        if botSettings.positionLocked and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+            local currentRootPart = player.Character.HumanoidRootPart
+            local distance = (currentRootPart.Position - botSettings.lockPosition).Magnitude
+            
+            if distance > botSettings.maxDistance and botSettings.teleportFallback then
+                debugPrint("📍 Distance exceeded, teleporting back to locked position")
+                currentRootPart.CFrame = CFrame.new(botSettings.lockPosition)
+            end
+        end
+    end)
+    
+    debugPrint("🔒 Position locked at:", botSettings.lockPosition)
+end
+
+local function unlockPosition()
+    if botState.positionCheckConnection then
+        botState.positionCheckConnection:Disconnect()
+        botState.positionCheckConnection = nil
+    end
+    
+    debugPrint("🔓 Position unlocked")
+end
+
+-- Bot Tab Setup
+BotTab:AddSection("Movement Control")
+
+-- Position Lock Toggle
+local positionLockToggle = BotTab:AddToggle("PositionLockToggle", {
+    Title = "Lock Position",
+    Description = "Lock your current position and prevent movement beyond set distance",
+    Default = false,
+    Callback = function(enabled)
+        botSettings.positionLocked = enabled
+        if enabled then
+            lockPosition()
+        else
+            unlockPosition()
+        end
+    end
+})
+
+-- Noclip Toggle
+local noclipToggle = BotTab:AddToggle("NoclipToggle", {
+    Title = "Noclip",
+    Description = "Enable noclip to walk through walls and objects",
+    Default = false,
+    Callback = function(enabled)
+        botSettings.noclipEnabled = enabled
+        if enabled then
+            enableNoclip()
+        else
+            disableNoclip()
+        end
+    end
+})
+
+-- Teleport Fallback Toggle
+local teleportFallbackToggle = BotTab:AddToggle("TeleportFallbackToggle", {
+    Title = "Teleport Fallback",
+    Description = "Automatically teleport back if you go too far from locked position",
+    Default = true,
+    Callback = function(enabled)
+        botSettings.teleportFallback = enabled
+        debugPrint("📍 Teleport fallback:", enabled and "enabled" or "disabled")
+    end
+})
+
+-- Max Distance Slider
+local maxDistanceSlider = BotTab:AddSlider("MaxDistanceSlider", {
+    Title = "Max Distance",
+    Description = "Maximum distance before teleport fallback triggers",
+    Default = 50,
+    Min = 10,
+    Max = 200,
+    Rounding = 0,
+    Callback = function(value)
+        botSettings.maxDistance = value
+        debugPrint("📏 Max distance set to:", value)
+    end
+})
+
+BotTab:AddSection("Manual Actions")
+
+-- Manual Teleport to Locked Position
+BotTab:AddButton({
+    Title = "Teleport to Locked Position",
+    Description = "Manually teleport back to your locked position",
+    Callback = function()
+        if botState.originalPosition and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+            player.Character.HumanoidRootPart.CFrame = CFrame.new(botSettings.lockPosition)
+            debugPrint("📍 Teleported to locked position")
+        else
+            debugPrint("❌ No locked position set")
+        end
+    end
+})
+
+-- Reset Position Lock
+BotTab:AddButton({
+    Title = "Reset Position Lock",
+    Description = "Set current position as new locked position",
+    Callback = function()
+        if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+            botSettings.lockPosition = player.Character.HumanoidRootPart.Position
+            botState.originalPosition = botSettings.lockPosition
+            debugPrint("🔄 Position lock reset to current location")
+        else
+            debugPrint("❌ Character not found")
+        end
+    end
+})
+
+BotTab:AddSection("Status")
+
+-- Bot Status Display
+local botStatusParagraph = BotTab:AddParagraph("BotStatusParagraph", {
+    Title = "Bot Status",
+    Content = "Initializing..."
+})
+
+-- Update bot status periodically
+spawn(function()
+    while true do
+        pcall(function()
+            if botStatusParagraph then
+                local status = string.format(
+                    "Position Lock: %s\nNoclip: %s\nTeleport Fallback: %s\nMax Distance: %d\nLocked Position: %s",
+                    botSettings.positionLocked and "ON" or "OFF",
+                    botSettings.noclipEnabled and "ON" or "OFF",
+                    botSettings.teleportFallback and "ON" or "OFF",
+                    botSettings.maxDistance,
+                    botState.originalPosition and string.format("%.1f, %.1f, %.1f", botSettings.lockPosition.X, botSettings.lockPosition.Y, botSettings.lockPosition.Z) or "Not Set"
+                )
+                
+                pcall(function()
+                    botStatusParagraph:SetContent(status)
+                end)
+            end
+        end)
+        task.wait(2)
+    end
+end)
+
 debugPrint("✅ Slime Incremental Hub loaded successfully!")
 debugPrint("🛡️ Anti-AFK protection is active")
 debugPrint("🎯 Blessing system integrated with webhook support")
+debugPrint("🤖 Bot movement controls available")
